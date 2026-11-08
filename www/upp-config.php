@@ -1,89 +1,74 @@
 <?php
-/**
- * moOde audio player (C) 2014 Tim Curtis
- * http://moodeaudio.org
- *
- * This Program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 3, or (at your option)
- * any later version.
- *
- * This Program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
- */
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright 2014 The moOde audio player project / Tim Curtis
+*/
 
-require_once dirname(__FILE__) . '/inc/playerlib.php';
+require_once __DIR__ . '/inc/common.php';
+require_once __DIR__ . '/inc/session.php';
+require_once __DIR__ . '/inc/sql.php';
 
-playerSession('open', '' ,'');
-$dbh = cfgdb_connect();
+$dbh = sqlConnect();
+phpSession('open');
 
-// Apply setting changes
 if (isset($_POST['save']) && $_POST['save'] == '1') {
-	// Set service params
 	$_POST['config']['upnpav'] = $_POST['config']['svctype'] == 'upnpav' ? '1' : '0';
 	$_POST['config']['openhome'] = $_POST['config']['svctype'] == 'openhome' ? '1' : '0';
+	unset($_POST['config']['svctype']);
 
-	// Update sql table and conf file
+	$validKeys = array_column(sqlRead('cfg_upnp', $dbh), 'param');
 	foreach ($_POST['config'] as $key => $value) {
-		cfgdb_update('cfg_upnp', $dbh, $key, $value);
-
-		if ($value != '') {
-			sysCmd("sed -i '/" . $key . ' =' . '/c\\' . $key . ' = ' . $value . "' /etc/upmpdcli.conf");
+		chkKey($key, $validKeys);
+		if ($key != 'qobuzpass') {
+			chkValue($key, $value);
 		}
-		else {
-			sysCmd("sed -i '/" . $key . ' =' . '/c\\' . '#' . $key . ' = ' . $value . "' /etc/upmpdcli.conf");
+		if ($key != 'qobuzpass' || $value != 'Password set') {
+			sqlUpdate('cfg_upnp', $dbh, $key, $value);
+			if ($value != '') {
+				$sedExpr = '/^' . $key . ' =/c\\' . $key . ' = ' . $value;
+			}
+			else {
+				$sedExpr = '/^' . $key . ' =/c\\' . '#' . $key . ' = ' . $value;
+			}
+			sysCmdSed($sedExpr, '/etc/upmpdcli.conf');
 		}
 	}
-
-	// Restart if indicated
-	submitJob('upnpsvc', '', 'Changes saved', ($_SESSION['upnpsvc'] == '1' ? 'UPnP renderer restarted' : ''));
+	$notify = $_SESSION['upnpsvc'] == '1' ?
+		array('title' => NOTIFY_TITLE_INFO, 'msg' => NAME_UPNP . NOTIFY_MSG_SVC_RESTARTED) :
+		array('title' => '', 'msg' => '');
+	submitJob('upnpsvc', '', $notify['title'], $notify['msg']);
 }
 
-session_write_close();
+phpSession('close');
 
-// Load settings
-$result = cfgdb_read('cfg_upnp', $dbh);
-$cfg_upnp = array();
+$result = sqlRead('cfg_upnp', $dbh);
+$cfgUPNP = array();
 
 foreach ($result as $row) {
-	$cfg_upnp[$row['param']] = $row['value'];
+	$cfgUPNP[$row['param']] = $row['value'];
 }
 
-// GENERAL
-$_select['checkcontentformat'] .= "<option value=\"1\" " . (($cfg_upnp['checkcontentformat'] == '1') ? "selected" : "") . ">Yes</option>\n";
-$_select['checkcontentformat'] .= "<option value=\"0\" " . (($cfg_upnp['checkcontentformat'] == '0') ? "selected" : "") . ">No</option>\n";
-$_select['svctype'] .= "<option value=\"upnpav\" " . (($cfg_upnp['upnpav'] == '1') ? "selected" : "") . ">UPnP-A/V</option>\n";
-$_select['svctype'] .= "<option value=\"openhome\" " . (($cfg_upnp['openhome'] == '1') ? "selected" : "") . ">OpenHome</option>\n";
+// General
+$_select['svctype'] .= "<option value=\"upnpav\" " . (($cfgUPNP['upnpav'] == '1') ? "selected" : "") . ">UPnP-A/V</option>\n";
+$_select['svctype'] .= "<option value=\"openhome\" " . (($cfgUPNP['openhome'] == '1') ? "selected" : "") . ">OpenHome</option>\n";
+$_select['checkcontentformat'] .= "<option value=\"1\" " . (($cfgUPNP['checkcontentformat'] == '1') ? "selected" : "") . ">Yes</option>\n";
+$_select['checkcontentformat'] .= "<option value=\"0\" " . (($cfgUPNP['checkcontentformat'] == '0') ? "selected" : "") . ">No</option>\n";
 
-/* DROP
-$_select['upnpav'] .= "<option value=\"1\" " . (($cfg_upnp['upnpav'] == '1') ? "selected" : "") . ">Yes</option>\n";
-$_select['upnpav'] .= "<option value=\"0\" " . (($cfg_upnp['upnpav'] == '0') ? "selected" : "") . ">No</option>\n";
-$_select['openhome'] .= "<option value=\"1\" " . (($cfg_upnp['openhome'] == '1') ? "selected" : "") . ">Yes</option>\n";
-$_select['openhome'] .= "<option value=\"0\" " . (($cfg_upnp['openhome'] == '0') ? "selected" : "") . ">No</option>\n";
-*/
+// Music services
+$_select['qobuzuser'] = $cfgUPNP['qobuzuser'];
+if (empty($cfgUPNP['qobuzpass'])) {
+	$_select['qobuzpass'] = '';
+	$_pwd_input_format = 'password';
+} else {
+	$_select['qobuzpass'] = 'Password set';
+	$_pwd_input_format = 'text';
+}
+$_select['qobuzformatid'] .= "<option value=\"5\" " . (($cfgUPNP['qobuzformatid'] == '5') ? "selected" : "") . ">MP3 320K</option>\n";
+$_select['qobuzformatid'] .= "<option value=\"6\" " . (($cfgUPNP['qobuzformatid'] == '6') ? "selected" : "") . ">FLAC</option>\n";
+$_select['qobuzformatid'] .= "<option value=\"7\" " . (($cfgUPNP['qobuzformatid'] == '7') ? "selected" : "") . ">FLAC 24/96K</option>\n";
+$_select['qobuzformatid'] .= "<option value=\"27\" " . (($cfgUPNP['qobuzformatid'] == '27') ? "selected" : "") . ">Highest resolution available</option>\n";
 
-/* DROP
-// TIDAL
-$_select['tidaluser'] = $cfg_upnp['tidaluser'];
-$_select['tidalpass'] = $cfg_upnp['tidalpass'];
-$_select['tidalquality'] .= "<option value=\"lossless\" " . (($cfg_upnp['tidalquality'] == 'lossless') ? "selected" : "") . ">FLAC (Lossless)</option>\n";
-$_select['tidalquality'] .= "<option value=\"high\" " . (($cfg_upnp['tidalquality'] == 'high') ? "selected" : "") . ">AAC (High bitrate)</option>\n";
-$_select['tidalquality'] .= "<option value=\"low\" " . (($cfg_upnp['tidalquality'] == 'low') ? "selected" : "") . ">AAC (Low bitrate)</option>\n";
-
-// QOBUZ
-$_select['qobuzuser'] = $cfg_upnp['qobuzuser'];
-$_select['qobuzpass'] = $cfg_upnp['qobuzpass'];
-$_select['qobuzformatid'] .= "<option value=\"7\" " . (($cfg_upnp['qobuzformatid'] == '7') ? "selected" : "") . ">FLAC (up to 96K)</option>\n";
-$_select['qobuzformatid'] .= "<option value=\"27\" " . (($cfg_upnp['qobuzformatid'] == '27') ? "selected" : "") . ">FLAC (up to 192K)</option>\n";
-$_select['qobuzformatid'] .= "<option value=\"5\" " . (($cfg_upnp['qobuzformatid'] == '5') ? "selected" : "") . ">MP3 (320K)</option>\n";
-*/
-waitWorker(1, 'upp-config');
+waitWorker('upp-config');
 
 $tpl = "upp-config.html";
 $section = basename(__FILE__, '.php');
