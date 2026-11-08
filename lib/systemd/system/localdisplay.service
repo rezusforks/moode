@@ -1,0 +1,13 @@
+[Unit]
+Description=Start Local Display
+After=nginx.service php8.4-fpm.service mpd.service
+
+[Service]
+Type=simple
+
+# Start xserver
+User=pi
+ExecStart=/usr/bin/xinit
+
+[Install]
+WantedBy=multi-user.target
