@@ -1,57 +1,62 @@
 #!/bin/bash
 #
-# moOde audio player (C) 2014 Tim Curtis
-# http://moodeaudio.org
-#
-# This Program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3, or (at your option)
-# any later version.
-#
-# This Program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright 2014 The moOde audio player project / Tim Curtis
 #
 
+LOGFILE="/var/log/moode_spsevent.log"
+DEBUG=$(sudo moodeutl -d -gv debuglog)
 SQLDB=/var/local/www/db/moode-sqlite3.db
 
-RESULT=$(sqlite3 $SQLDB "select value from cfg_system where param='alsavolume_max' or param='alsavolume' or param='amixname' or param='inpactive' or param='multiroom_tx'")
+debug_log () {
+	if [[ $DEBUG == '0' ]]; then
+		return 0
+	fi
+	echo "$1"
+	TIME=$(date +'%Y%m%d %H%M%S')
+	echo "$TIME $1" >> $LOGFILE
+}
+
+debug_log "Event: Run spspre.sh"
+
+# cfg_system
+RESULT=$(sqlite3 $SQLDB "SELECT value FROM cfg_system WHERE param IN ('volknob','alsavolume_max','alsavolume','amixname','camilladsp_volume_sync','inpactive','multiroom_tx')")
 readarray -t arr <<<"$RESULT"
-ALSAVOLUME_MAX=${arr[0]}
-ALSAVOLUME=${arr[1]}
-AMIXNAME=${arr[2]}
-INPACTIVE=${arr[3]}
-MULTIROOM_TX=${arr[4]}
-RX_ADDRESSES=$(sudo moodeutl -d | grep rx_addresses | cut -d'|' -f2)
+VOLKNOB=${arr[0]}
+ALSAVOLUME_MAX=${arr[1]}
+ALSAVOLUME=${arr[2]}
+AMIXNAME=${arr[3]}
+CDSP_VOLSYNC=${arr[4]}
+INPACTIVE=${arr[5]}
+MULTIROOM_TX=${arr[6]}
+RX_ADDRESSES=$(sudo moodeutl -d -gv rx_addresses)
 
 if [[ $INPACTIVE == '1' ]]; then
 	exit 1
 fi
 
+$(sqlite3 $SQLDB "UPDATE cfg_system SET value='1' WHERE param='aplactive'")
 /usr/bin/mpc stop > /dev/null
-
-# Allow time for ui update
-sleep 1
-
-$(sqlite3 $SQLDB "update cfg_system set value='1' where param='aplactive'")
+# Send to front-end
+/var/www/util/send-fecmd.php "aplactive1"
 
 # Local
-if [[ $ALSAVOLUME != "none" ]]; then
-	/var/www/command/util.sh set-alsavol "$AMIXNAME" $ALSAVOLUME_MAX
+if [[ $CDSP_VOLSYNC == "on" ]]; then
+	# Set 0dB CDSP volume
+	sed -i '0,/- -.*/s//- 0.0/' /var/lib/cdsp/statefile.yml
+elif [[ $ALSAVOLUME != "none" ]]; then
+	# Set 0dB ALSA volume
+	/var/www/util/sysutil.sh set-alsavol "$AMIXNAME" $ALSAVOLUME_MAX
 fi
 
 # Multiroom receivers
 if [[ $MULTIROOM_TX == "On" ]]; then
 	for IP_ADDR in $RX_ADDRESSES; do
-		RESULT=$(curl -G -S -s --data-urlencode "cmd=trx-status.php -set-alsavol $ALSAVOLUME_MAX" http://$IP_ADDR/command/)
+		RESULT=$(curl -G -S -s --data-urlencode "cmd=trx_control -set-alsavol" http://$IP_ADDR/command/)
 		if [[ $RESULT != "" ]]; then
-			RESULT=$(curl -G -S -s --data-urlencode "cmd=trx-status.php -set-alsavol $ALSAVOLUME_MAX" http://$IP_ADDR/command/)
+			RESULT=$(curl -G -S -s --data-urlencode "cmd=trx_control -set-alsavol" http://$IP_ADDR/command/)
 			if [[ $RESULT != "" ]]; then
-				echo echo $(date +%F" "%T)"spspre.sh trx-status.php -set-alsavol failed: $IP_ADDR" >> /home/pi/renderer_error.log
+				echo $(date +'%Y%m%d %H%M%S') "Event: trx_control -set-alsavol failed: $IP_ADDR" >> $LOGFILE
 			fi
 		fi
 	done

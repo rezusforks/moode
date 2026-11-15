@@ -50,6 +50,7 @@
  *  gulp deploy [--test]        - Deploys everything needed (inc php etc) {app.deploy}.
  *              [--force]                  With the option --test deploy to build/dist (app.dist).
  *              [--all]           Also deploy moodeutl and the /var/local/www dir
+ *              [--remote]        Deploy to target Pi by using ssh/scp
  *
  *                                Deploy only copy/update, never removes files.
  *                                When used to real don't forget to sudo first
@@ -87,7 +88,7 @@ const gulp = require("gulp");
 var autoprefixer = require('autoprefixer');
 var cssnano = require('cssnano');
 const path = require('path');
-
+const { exec } = require('child_process');
 // load all plugins in 'devDependencies' into the variable $
 const $ = require('gulp-load-plugins')({
     pattern: ['*'],
@@ -258,9 +259,9 @@ gulp.task('cache', function(done){
             path.basename = 'index';
             path.extname = '.html';
         }))
-        .pipe($.replace(/[.]min[.]css\"/g, ".css\"")) // make sure no minified css is uses ass source
-        .pipe($.replace(/[.]min[.]js\"/g, ".js\""))  // make sure no minified js is uses ass source
-        .pipe($.replace(/.*BUNDLE_TAG.*/g, "")) // remove comment blocks to in clude everything
+        .pipe($.replace(/[.]min[.]css\"/g, ".css\"")) // make sure no minified css is uses as source
+        .pipe($.replace(/[.]min[.]js\"/g, ".js\""))  // make sure no minified js is uses as source
+        .pipe($.replace(/.*BUNDLE_TAG.*/g, "")) // remove comment blocks to include everything
         .pipe($.replace(/.*CONFIGBLOCKSECTION.*/g, ""))
         .pipe($.replace(/.*GEN_DEV_INDEX_TAG.*/g, ""))
         .pipe($.removeCode({USEBUNDLE:true, GENINDEXDEV:true, commentStart: "<!--", commentEnd:"-->"}))
@@ -299,8 +300,8 @@ gulp.task('bundle', gulp.series([`cache`, `maps`],function (done) {
             path.basename = 'index';
             path.extname = '.html';
         }))
-        .pipe($.replace(/[.]min[.]css\"/g, ".css\"")) // make sure no minified css is uses ass source
-        .pipe($.replace(/[.]min[.]js\"/g, ".js\""))  // make sure no minified js is uses ass source
+        .pipe($.replace(/[.]min[.]css\"/g, ".css\"")) // make sure no minified css is uses as source
+        .pipe($.replace(/[.]min[.]js\"/g, ".js\""))  // make sure no minified js is uses as source
         .pipe($.replace(/.*BUNDLE_TAG.*/g, "")) // remove comment blocks to in clude everything
         .pipe($.replace(/.*CONFIGBLOCKSECTION.*/g, ""))
         .pipe($.replace(/.*GEN_DEV_INDEX_TAG.*/g, ""))
@@ -335,8 +336,8 @@ gulp.task('genindexdev', function(done){
             path.basename = 'index';
             path.extname = '.html';
         }))
-        .pipe($.replace(/[.]min[.]css\"/g, ".css\"")) // make sure no minified css is uses ass source
-        .pipe($.replace(/[.]min[.]js\"/g, ".js\""))  // make sure no minified js is uses ass source
+        .pipe($.replace(/[.]min[.]css\"/g, ".css\"")) // make sure no minified css is uses as source
+        .pipe($.replace(/[.]min[.]js\"/g, ".js\""))  // make sure no minified js is uses as source
         .pipe($.replace(/.*BUNDLE_TAG.*/g, "")) // adds multiple jquery files instead of one jquery bundle
         .pipe($.replace(/.*GEN_DEV_INDEX_TAG.*/g, "")) // make wellformed by adding cloding body and html
         .pipe($.replace(/.*CONFIGBLOCKSECTION_BEGIN.*/g, "<!-- CONFIGBLOCKSECTION")) // adds multiple jquery files instead of one jquery bundle
@@ -362,8 +363,8 @@ gulp.task('genindex', function(done){
             path.extname = '.html';
         }))
         .pipe($.if(!mode.force(), $.newer( { dest: pkg.app.dest})))
-        .pipe($.replace(/[.]min[.]css\"/g, ".css\"")) // make sure no minified css is uses ass source
-        .pipe($.replace(/[.]min[.]js\"/g, ".js\""))  // make sure no minified js is uses ass source
+        .pipe($.replace(/[.]min[.]css\"/g, ".css\"")) // make sure no minified css is uses as source
+        .pipe($.replace(/[.]min[.]js\"/g, ".js\""))  // make sure no minified js is uses as source
         .pipe($.replace(/.*BUNDLE_TAG.*/g, "")) // adds multiple jquery files instead of one jquery bundle
         .pipe($.replace(/.*GEN_DEV_INDEX_TAG.*/g, "")) // make wellformed by adding cloding body and html
         .pipe($.replace(/.*CONFIGBLOCKSECTION_BEGIN.*/g, "<!-- CONFIGBLOCKSECTION")) // adds multiple jquery files instead of one jquery bundle
@@ -376,6 +377,9 @@ gulp.task('genindex', function(done){
             ]})) // include templates/indextpl.html and footer.php to create working index.html
         .pipe($.removeCode({USEBUNDLE:true, GENINDEXDEV:true, NOCONFIGSECTION:true, commentStart: "<!--", commentEnd:"-->"}))
         .pipe($.useref({noAssets: true}))
+        .pipe($.if('index.html', $.cacheBust({
+            type: 'timestamp'
+            }))  )
         .pipe($.replaceTask({ patterns: REPLACEMENT_PATTERNS }))
         .pipe($.preprocess({ context: { STRIP_CONFIG: true } }))
         .pipe($.size({showFiles: true, total: false}))
@@ -386,12 +390,15 @@ gulp.task('genindex', function(done){
 gulp.task('patchheader', function (done) {
     return gulp.src(pkg.app.src+'/header.php')
         //.pipe($.if(!mode.force(), $.newer( { dest: pkg.app.dist})))
-        .pipe($.replace(/[.]min[.]css\"/g, ".css\"")) // make sure no minified css is uses ass source
-        .pipe($.replace(/[.]min[.]js\"/g, ".js\""))  // make sure no minified js is uses ass source
+        .pipe($.replace(/[.]min[.]css\"/g, ".css\"")) // make sure no minified css is uses as source
+        .pipe($.replace(/[.]min[.]js\"/g, ".js\""))  // make sure no minified js is uses as source
         .pipe($.replace(/.*BUNDLE_TAG.*/g, ""))
         .pipe($.removeCode({ GENINDEXDEV: false, NOCONFIGSECTION: false, GENINDEXDEV: false, USEBUNDLE:true, commentStart: "<!--", commentEnd:"-->"}))
         .pipe($.preprocess({ context: { STRIP_CONFIG: true } }))
         .pipe($.useref({noAssets: true}))
+        .pipe($.if('header.php', $.cacheBust({
+            type: 'timestamp'
+            }))  )
         .pipe($.size({showFiles: true, total: false}))
         .pipe(gulp.dest(DEPLOY_LOCATION))
         .on('end', done);
@@ -450,7 +457,6 @@ gulp.task('artwork', function(done) {
               ,pkg.app.src+'/fonts/**/*'
               ,pkg.app.src+'/images/**/*' ], {base:pkg.app.src})
         .pipe($.if(!mode.force(), $.newer( { dest: pkg.app.dest})))
-//        .pipe($.size({showFiles: true, total: true}))
         .pipe(gulp.dest(pkg.app.dest));
     done();
 });
@@ -483,8 +489,10 @@ gulp.task('deployvarlocalwww', function (done) {
 gulp.task('deployback', gulp.series(['patchheader','patchfooter', 'patchindex', 'patchconfigs', 'minifyhtml'], function (done) {
     return gulp.src([  pkg.app.src+'/*.php'
                       ,pkg.app.src+'/command/**/*'
+                      ,pkg.app.src+'/daemon/**/*'
                       ,pkg.app.src+'/inc/**/*'
                       ,pkg.app.src+'/templates/**/*'
+                      ,pkg.app.src+'/util/**/*'
                       ,pkg.app.src+'/*'
                       // exclude generated content:
                       ,'!'+pkg.app.src+'/index.html'
@@ -501,12 +509,12 @@ gulp.task('deployback', gulp.series(['patchheader','patchfooter', 'patchindex', 
         // optional headers fields can be update and or added:
         //.pipe( $.replaceTask({ patterns: REPLACEMENT_PATTERNS }))
         //.pipe($.if('*.html', $.header(banner_html, {pkg: pkg}) ))
-        .pipe($.if(!(mode.test()||mode.remote()), $.chown('root','root')))
         .pipe($.if(!mode.force(), $.newer( { dest: DEPLOY_LOCATION})))
         //.pipe($.size({showFiles: true, total: true}))
         .pipe($.if('*.html', $.replaceTask({ patterns: REPLACEMENT_PATTERNS})))
+        .pipe($.chmod(0o755))
         .pipe(gulp.dest(DEPLOY_LOCATION))
-        .on('end', done);
+        .on('end', done);        
 }));
 
 gulp.task('deployfront', function (done) {
@@ -525,7 +533,7 @@ gulp.task('upload2remote', function (done) {
         host: pkg.remote.host,
         username: pkg.remote.user,
         password: pkg.remote.password,
-        dest: '/home/pi/www.deploy'}))
+        dest: '/tmp/www.deploy'}))
     .on('error', function(err) {
         console.log(err);
     })
@@ -540,10 +548,12 @@ gulp.task('deploy2remote', function (done) {
     return gulpSSH
         .exec(['sudo rm -rf /var/www.prev',
                'sudo mv /var/www/ /var/www.prev',
-               'sudo mv /home/pi/www.deploy /var/www',
+               'sudo mv /tmp/www.deploy /var/www',
                'sudo chmod -R +x /var/www/command/*',
+               'sudo chmod -R +x /var/www/util/*',
                // required if uploaded from windows
                process.platform === "win32" ? 'find /var/www/command/* -exec /usr/bin/dos2unix {} \\; 2>/dev/null': 'echo',
+               process.platform === "win32" ? 'find /var/www/util/* -exec /usr/bin/dos2unix {} \\; 2>/dev/null': 'echo',
                '/usr/local/bin/moodeutl -r'
                 ], {filePath: 'commands.log'})
         //.pipe(gulp.dest('logs'))
@@ -558,8 +568,19 @@ else if (mode.all() ==true ){
     deployTasks = ['deployfront', 'deployback', 'deploymoodeutl', 'deployvarlocalwww'];
 }
 
-gulp.task('deploy', gulp.series( deployTasks, function (done) {
-    done();
+gulp.task('deploy', gulp.series( deployTasks, function (done) { 
+    if (!(mode.test()||mode.remote()))  {
+         exec(`chown -R root:root ${DEPLOY_LOCATION}`, (err, stdout, stderr) => {
+                    if (err) {
+                        console.error(err);
+                        done(err);
+                        return;
+                    }
+                    done();
+                });
+    }else {
+        done();
+    }
 }));
 
 var watchTasks = mode.build() ? ['build', 'browserSync']: ['sass', 'genindexdev', 'browserSync'],
