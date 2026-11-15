@@ -1,75 +1,89 @@
 <?php
-/**
- * moOde audio player (C) 2014 Tim Curtis
- * http://moodeaudio.org
- *
- * tsunamp player ui (C) 2013 Andrea Coiutti & Simone De Gregori
- * http://www.tsunamp.com
- *
- * This Program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 3, or (at your option)
- * any later version.
- *
- * This Program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
- */
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright 2014 The moOde audio player project / Tim Curtis
+ * Copyright 2013 The tsunamp player ui / Andrea Coiutti & Simone De Gregori
+*/
 
-require_once dirname(__FILE__) . '/inc/playerlib.php';
+require_once __DIR__ . '/inc/common.php';
+require_once __DIR__ . '/inc/mpd.php';
+require_once __DIR__ . '/inc/music-library.php';
+require_once __DIR__ . '/inc/session.php';
+require_once __DIR__ . '/inc/sql.php';
 
-$result = sdbquery("SELECT value FROM cfg_system WHERE param='wrkready'", cfgdb_connect());
+// Fetch the socket timeout value
+$timeout = sqlQuery("SELECT value FROM cfg_system WHERE param='empd_socket_timeout'", sqlConnect())[0]['value'];
+$sockTimeout = $timeout == 'default' ? MPD_DEFAULT_SOCKET_TIMEOUT : $timeout; // Default is 600000 secs (7 days)
+scriptLog('Script start');
 
 // Check for Worker startup complete
-if ($result[0]['value'] == '0') {
-	//workerLog('engine-mpd: Worker startup is not finished yet');
+$wrkready = sqlQuery("SELECT value FROM cfg_system WHERE param='wrkready'", sqlConnect())[0]['value'];
+if ($wrkready == '0') {
+	scriptLog('Script exit (startup not complete yet)');
 	exit;
 }
 
 // Check for MPD connection failure
 $sock = openMpdSock('localhost', 6600);
 if (!$sock) {
-	debugLog('engine-mpd: Connection to MPD failed');
-	echo json_encode(array('error' => 'openMpdSock() failed', 'module' => 'engine-mpd'));
+	debugLog('engine-mpd: ' . $_SERVER['REMOTE_ADDR'] . ' Socket open failed');
+	echo json_encode(array('error' => array('code' => '1001', 'message' => 'Socket open failed')));
+	scriptLog('Script exit (socket open failed)');
 	exit;
+} else {
+	 // Determines how often PHP times out the socket
+	stream_set_timeout($sock, $sockTimeout);
+	scriptLog('Socket opened (timeout ' . $sockTimeout . ' secs)');
 }
 
-//workerLog('engine-mpd: Get initial status');
-$current = parseStatus(getMpdStatus($sock));
+// Get MPD status
+$status = getMpdStatus($sock);
+$status['empd_socket_timeout'] = $sockTimeout;
 
 // Initiate MPD idle
-//workerLog('engine-mpd: UI state=(' . $_GET['state'] . '), MPD state=(' . $current['state'] .')');
-if ($_GET['state'] == $current['state']) {
-	//workerLog('engine-mpd: Wait for idle timeout');
+if ($_GET['state'] == $status['state']) {
+	scriptLog('Idle');
+
 	sendMpdCmd($sock, 'idle');
-	stream_set_timeout($sock, 600000); // Value determines how often PHP times out the socket
 	$resp = readMpdResp($sock);
 
-	$event = explode("\n", $resp)[0];
-	//workerLog('engine-mpd: Idle timeout event=(' . $event . ')');
-	//workerLog('engine-mpd: Get new status');
-	$current = parseStatus(getMpdStatus($sock));
-	$current['idle_timeout_event'] = $event;
+	if ($resp == 'Socket timed out') {
+		scriptLog('** Socket timed out');
+	} else {
+		$event = explode("\n", $resp)[0];
+		$status = getMpdStatus($sock);
+		$status['idle_timeout_event'] = $event;
+		$status['idle_mixer_changed'] = (strpos($resp, 'changed: mixer') !== false) ? '1' : '0';
+		$status['empd_socket_timeout'] = $sockTimeout;
+		scriptLog('Event (' . $event . ')');
+	}
 }
 
-// Create enhanced metadata
-//workerLog('engine-mpd: Generating enhanced metadata');
-$current = enhanceMetadata($current, $sock, 'engine_mpd_php');
+if ($resp != 'Socket timed out') {
+	// Return data to front-end
+	$metadata = json_encode(enhanceMetadata($status, $sock, 'engine_mpd_php'));
+	if ($metadata === false) {
+		scriptLog('Error returned to front-end (json encode failed)');
+		echo json_encode(array('error' => array('code' => json_last_error(), 'message' => json_last_error_msg())));
+	} else {
+		scriptLog('Data returned to front-end');
+		echo $metadata;
+	}
+} else {
+	echo json_encode(array('error' => array('code' => '1002', 'message' => 'Socket timed out')));
+}
+
 closeMpdSock($sock);
-//workerLog('engine-mpd: Metadata returned to client: Size=(' . sizeof($current) . ')');
-//foreach ($current as $key => $value) {workerLog('engine-mpd: Metadata returned to client: Raw=(' . $key . ' ' . $value . ')');}
-//workerLog('engine-mpd: Metadata returned to client: Json=(' . json_encode($current) . ')');
+scriptLog('Socket closed');
+scriptLog('Script end');
 
-// @ohinckel https: //github.com/moode-player/moode/pull/14/files
-$current_json = json_encode($current);
-if ($current_json === FALSE) {
-	echo json_encode(array('error' => array('code' => json_last_error(), 'message' => json_last_error_msg())));
-}
-else {
-	echo $current_json;
+// Script log (Default is off)
+// Turn on/off
+// sudo sed -i 's/#workerLog/workerLog/' /var/www/engine-mpd.php
+// sudo sed -i 's/workerLog/#workerLog/' /var/www/engine-mpd.php
+// Set timeout value
+// moodeutl -q "UPDATE cfg_system SET value='30' WHERE param='empd_socket_timeout'"
+// moodeutl -q "UPDATE cfg_system SET value='default' WHERE param='empd_socket_timeout'"
+function scriptLog($msg) {
+	#workerLog('engine-mpd: ' . $_SERVER['REMOTE_ADDR'] . ' ' . $msg);
 }

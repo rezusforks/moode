@@ -1,26 +1,12 @@
 <?php
-/**
- * moOde audio player (C) 2014 Tim Curtis
- * http://moodeaudio.org
- *
- * (C) 2020 @bitlab (@bitkeeper Git)
- *
- * This Program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 3, or (at your option)
- * any later version.
- *
- * This Program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
- */
-require_once dirname(__FILE__) . '/playerlib.php';
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright 2014 The moOde audio player project / Tim Curtis
+ * Copyright 2020 @bitlab (@bitkeeper Git)
+*/
 
+require_once __DIR__ . '/common.php';
+require_once __DIR__ . '/sql.php';
 
 // Factory for a Eqp wrapper for the 12 bands Eqfa12p.conf
 function Eqp12($dbh)  {
@@ -36,9 +22,9 @@ function Eqp12($dbh)  {
 class Eqp {
 
     private $dbh = NULL;
-    private $band_count = EQP_BANDS12;
+    private $band_count = 12;
     private $table = "";
-    private $alsa_file ="";
+    private $alsa_file = "";
 
     function __construct($db, $table, $bands, $configfile) {
         $this->dbh = &$db;
@@ -101,7 +87,7 @@ class Eqp {
     function getpreset($index) {
         $querystr = 'SELECT settings from ' . $this->table . ' where id = '. $index . ';';
 
-        $result = sdbquery($querystr, $this->dbh);
+        $result = sqlQuery($querystr, $this->dbh);
         $config = $this->string2config($result[0]['settings']);
         return $config;
     }
@@ -116,10 +102,10 @@ class Eqp {
             else {
                 $querystr ="INSERT INTO " . $this->table . " (curve_name, settings, active) VALUES ('" . $name . "', '" . $settingsStr . "', 0);";
             }
-            $result = sdbquery($querystr, $this->dbh);
+            $result = sqlQuery($querystr, $this->dbh);
 
-            $querystr = 'SELECT id from ' . $this->table . ' where curve_name = "' . $name . '" limit 1;';
-            $result = sdbquery($querystr, $this->dbh);
+            $querystr = 'SELECT id from ' . $this->table . " where curve_name = '" . $name . "' limit 1;";
+            $result = sqlQuery($querystr, $this->dbh);
             return (is_array($result) and count($result)==1) ? $result[0]['id']: NULL;
         }
     }
@@ -127,13 +113,13 @@ class Eqp {
     function unsetpreset($index) {
         if($index) {
             $querystr = "DELETE FROM " . $this->table . " WHERE id = " . $index . ";";
-            $result = sdbquery($querystr, $this->dbh);
+            $result = sqlQuery($querystr, $this->dbh);
         }
     }
 
     function getPresets() {
         $querystr = 'SELECT id, curve_name from ' . $this->table . ';';
-        $result = sdbquery($querystr, $this->dbh);
+        $result = sqlQuery($querystr, $this->dbh);
         $presets = [];
         foreach($result as $preset_row) {
             $presets[$preset_row['id']] = $preset_row['curve_name'];
@@ -143,17 +129,17 @@ class Eqp {
 
     function getActivePresetIndex() {
         $querystr = 'SELECT id from ' . $this->table . ' WHERE active=1;';
-        $result = sdbquery($querystr, $this->dbh);
+        $result = sqlQuery($querystr, $this->dbh);
         return (is_array($result) and count($result)==1) ? $result[0]['id']: 0;
     }
 
     function setActivePresetIndex($index) {
         $querystr = "UPDATE " . $this->table . " SET active = 0 WHERE active = 1;";
-        $result = sdbquery($querystr, $this->dbh);
+        $result = sqlQuery($querystr, $this->dbh);
 
         if($index >= 1 ) {
             $querystr = "UPDATE " . $this->table . " SET active = 1 WHERE id = " . $index . ";";
-            $result = sdbquery($querystr, $this->dbh);
+            $result = sqlQuery($querystr, $this->dbh);
         }
     }
 
@@ -191,21 +177,21 @@ class Eqp {
         $keys = array_keys($values);
 
         $querystr = 'DELETE FROM '. $this->table . ';';
-        $result = sdbquery($querystr, $this->dbh);
+        $result = sqlQuery($querystr, $this->dbh);
 
-        for($index =0; $index< $curve_count; $index++) {
+        for ($index = 0; $index < $curve_count; $index++) {
             $curve_name = $values['eqp12_curve_name'][$index];
             $curve_settings = $values['eqp12_settings'][$index];
             $curve_active = $values['eqp12_active'][$index];
 
-            $querystr = 'SELECT id from ' . $this->table . ' where curve_name = "' . $curve_name . '" limit 1;';
-            $result = sdbquery($querystr, $this->dbh);
-            // check if curve if all ready present,in that case an update will be done
-            $curve_curr_id = count($result)==1 ? $result[0]['id']: NULL;
+            $querystr = 'SELECT id from ' . $this->table . " WHERE curve_name = '" . $curve_name . "' LIMIT 1;";
+            $result = sqlQuery($querystr, $this->dbh);
+            // Check if curve is present, in that case an update will be done
+            $curve_curr_id = is_array($result) && count($result) == 1 ? $result[0]['id'] : NULL;
 
             $config = $this->string2config($curve_settings);
             $curve_id = $this->setpreset($curve_curr_id , $curve_name, $config);
-            if( in_array( strtolower($curve_active), ["1", "yes", "true", "on"]) ) {
+            if (in_array(strtolower($curve_active), ["1", "yes", "true", "on"])) {
                 $this->applyConfig($config);
                 $this->setActivePresetIndex($curve_id);
             }
@@ -217,7 +203,7 @@ class Eqp {
      */
     function export() {
         $querystr = 'SELECT id, curve_name, settings, active from ' . $this->table . ';';
-        $result = sdbquery($querystr, $this->dbh);
+        $result = sqlQuery($querystr, $this->dbh);
 
         $eqp_export ='';
         $stringformat = "eqp12_%s[%d] = \"%s\"\n";
@@ -234,7 +220,7 @@ class Eqp {
 
 // if php isn't used as include run buildin tests for development diagnostics
 function test() {
-    $dbh = &cfgdb_connect();
+    $dbh = &sqlConnect();
     $eqp12 = Eqp12($dbh);
 
     print("get config for preset 1:\n");

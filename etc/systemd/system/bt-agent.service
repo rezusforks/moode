@@ -1,0 +1,15 @@
+[Unit]
+Description=Bluetooth Authorization Agent
+After=bluetooth.service
+PartOf=bluetooth.service
+
+[Service]
+Type=simple
+KillSignal=SIGINT
+# BT_AGENT_CAPABILITY is written by the worker when the pairing mode is changed;
+# absent -> the agent defaults to DisplayYesNo (Numeric Comparison confirmation).
+EnvironmentFile=-/var/local/www/btagent.env
+ExecStart=/usr/bin/python3 /var/www/daemon/bt_pairing_agent.py
+
+[Install]
+WantedBy=bluetooth.target
