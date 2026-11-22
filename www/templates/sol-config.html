@@ -1,0 +1,59 @@
+<!--
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright 2014 The moOde audio player project / Tim Curtis
+*/
+-->
+<div id="container">
+<div class="container">
+	<h1 class="ren-config">Spotify Soloist</h1>
+
+	<!-- TEMPLATE -->
+
+	<form id="config-form" class="form-horizontal" action="" method="post">
+		<input type="hidden" name="csrf_token" value="$_csrf_token">
+
+		<legend>Settings
+			<button class="legend-config btn btn-medium btn-primary btn-submit" type="submit" name="save" value="1">Save</button>
+		</legend>
+
+		<div class="control-group">
+			<label class="control-label" for="soloistkey">API key</label>
+			<div class="controls">
+				<input class="config-input-large" type="text" pattern="[A-Za-z0-9_\-]{16,128}" id="soloistkey" name="soloistkey" value="" autocomplete="off" placeholder="$_placeholder[soloistkey]">
+				<a aria-label="Help" class="config-info-toggle" data-cmd="info-soloistkey" href="#notarget"><i class="fa-regular fa-sharp fa-info-circle"></i></a>
+				<a data-toggle="modal" href="#clear-soloistkey" class="clear-password $_clear_hide[soloistkey]"><i class="fa-regular fa-sharp fa-circle-x"></i></a>
+				$_soloistkey_status
+				<span id="info-soloistkey" class="config-help-info">
+					Visit <a href="https://developer.spotify.com/documentation/soloist/tutorials/getting-started" class="target-blank-link" target="_blank">Spotify for Developers</a>
+					to generate an API key. Login with your Spotify Premium account credentials.
+				</span>
+			</div>
+
+			<label class="control-label" for="initial-volume">Initial volume</label>
+			<div class="controls">
+				<input class="config-input-large" type="number" min="0" max="100" step="1" id="initial-volume" name="config[initial_volume]" value="$_select[initial_volume]" required>
+				<a aria-label="Help" class="config-info-toggle" data-cmd="info-initial-volume" href="#notarget"><i class="fa-regular fa-sharp fa-info-circle"></i></a>
+				<span id="info-initial-volume" class="config-help-info">
+					The initial volume on the client App after it connects, from 0 to 100%.
+				</span>
+			</div>
+		</div>
+	</form>
+</div>
+</div>
+
+<form class="form-horizontal" method="post">
+	<input type="hidden" name="csrf_token" value="$_csrf_token">
+
+	<div id="clear-soloistkey" class="modal hide" tabindex="-1" role="dialog" aria-labelledby="clear-soloistkey-label" aria-hidden="true">
+		<div class="modal-header"><button aria-label="Close" type="button" class="close" data-dismiss="modal">&times;</button>
+			<h3>Clear Soloist API key?</h3>
+		</div>
+		<div class="modal-body"></div>
+		<div class="modal-footer">
+			<button class="btn" data-dismiss="modal">Cancel</button>
+			<button class="btn btn-primary btn-submit btn-clear-secret" type="submit" form="config-form" name="clear[soloistkey]" value="1">Yes</button>
+		</div>
+	</div>
+</form>

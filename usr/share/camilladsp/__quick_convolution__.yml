@@ -2,16 +2,16 @@ devices:
   samplerate: 44100
   chunksize: 4096
   queuelimit: 1
+  volume_ramp_time: 150
   capture:
-    type: File
     channels: 2
-    filename: "/dev/stdin"
-    format: S16LE
+    format: S32_LE
+    type: Stdin
   playback:
     type: Alsa
     channels: 2
     device: "plughw:0,0"
-    format: S16LE
+    format: S32_LE
 filters:
     mastergain:
         type: Gain
@@ -49,13 +49,14 @@ pipeline:
   - type: Mixer
     name: stereo
   - type: Filter
-    channel: 0
+    channels:
+    - 0
     names:
       - mastergain
       - ir_left
   - type: Filter
-    channel: 1
+    channels:
+    - 1
     names:
       - mastergain
       - ir_right
-      
